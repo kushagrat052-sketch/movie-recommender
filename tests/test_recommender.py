@@ -37,6 +37,19 @@ def test_genre_filter(model):
     assert recs["genres"].str.contains("Animation").all()
 
 
+def test_genre_counts(model):
+    counts = model.genre_counts
+    assert counts["Drama"] > 1000
+    assert counts["Animation"] > 0
+
+
+def test_top_rated_genre(model):
+    picks = model.top_rated("Animation", n=4)
+    assert len(picks) == 4
+    assert picks["genres"].str.contains("Animation").all()
+    assert picks["vote_count"].min() >= 100
+
+
 def test_unknown_title_raises(model):
     with pytest.raises(KeyError):
         model.recommend("This Movie Does Not Exist")

@@ -48,9 +48,42 @@ class MovieRecommender:
             found |= movie_genres
         return sorted(found)
 
+    @property
+    def genre_counts(self):
+        counts = {}
+        for movie_genres in self._genres:
+            for genre in movie_genres:
+                counts[genre] = counts.get(genre, 0) + 1
+        return counts
+
     def details(self, title):
         """Everything we know about one movie (without the tag blob)."""
         return self.df.loc[self._find(title)].drop(labels=["tags"])
+
+    def top_rated(self, genre=None, n=6, min_votes=100):
+        """Best movies overall, or within one genre.
+
+        Uses a weighted rating (the IMDb formula) so a film with 30 votes
+        and a 9.5 average does not beat one with 8,000 votes and 8.1.
+        """
+        movies = self.df
+        if genre:
+            movies = movies[self._genres.apply(lambda names: genre in names)]
+        movies = movies[movies["vote_count"].fillna(0) >= min_votes]
+        if movies.empty:
+            return movies.drop(columns=["tags"]).reset_index(drop=True)
+
+        mean_rating = self.df["vote_average"].mean()
+        votes = movies["vote_count"].astype(float)
+        prior = 500
+        weighted = (votes / (votes + prior)) * movies["vote_average"] + (
+            prior / (votes + prior)
+        ) * mean_rating
+
+        ranked = movies.assign(score=weighted).sort_values(
+            ["score", "vote_count"], ascending=False
+        )
+        return ranked.head(n).drop(columns=["tags", "score"]).reset_index(drop=True)
 
     def recommend(self, title, n=5, min_votes=0, min_rating=0.0, genres=None):
         """Return the n movies most similar to `title`.

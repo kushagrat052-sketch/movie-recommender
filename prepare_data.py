@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from features import make_tags
+
 RAW_DIR = Path("data/raw")
 OUT_PATH = Path("data/movies_processed.csv")
 
@@ -44,25 +46,6 @@ def find_director(value):
     return ""
 
 
-def tokenise(names):
-    """'Sam Worthington' -> 'samworthington' so a person counts as one token."""
-    return [name.lower().replace(" ", "").replace("-", "") for name in names]
-
-
-def build_tags(row):
-    # Genres and director are repeated so they carry a bit more weight than
-    # the overview, which is long and tends to dominate the vector.
-    return " ".join(
-        [
-            row["overview"].lower(),
-            " ".join(tokenise(row["genres_list"]) * 2),
-            " ".join(tokenise(row["keywords_list"])),
-            " ".join(tokenise(row["cast_list"])),
-            " ".join(tokenise([row["director"]]) * 2),
-        ]
-    )
-
-
 def main():
     movies = pd.read_csv(RAW_DIR / "tmdb_5000_movies.csv")
     credits = pd.read_csv(RAW_DIR / "tmdb_5000_credits.csv")
@@ -78,7 +61,16 @@ def main():
     df["cast_list"] = df["cast"].apply(lambda value: parse_names(value, limit=3))
     df["director"] = df["crew"].apply(find_director)
 
-    df["tags"] = df.apply(build_tags, axis=1)
+    df["tags"] = df.apply(
+        lambda row: make_tags(
+            row["overview"],
+            row["genres_list"],
+            row["keywords_list"],
+            row["cast_list"],
+            row["director"],
+        ),
+        axis=1,
+    )
 
     df["release_year"] = pd.to_datetime(
         df["release_date"], errors="coerce"
