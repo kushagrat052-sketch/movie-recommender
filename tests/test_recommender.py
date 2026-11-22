@@ -19,6 +19,12 @@ def test_details_hide_tags(model):
     assert "tags" not in movie.index
 
 
+def test_poster_paths_are_shipped_with_the_data(model):
+    assert "poster_path" in model.df.columns
+    filled = model.df["poster_path"].fillna("").astype(str).str.strip().ne("")
+    assert filled.mean() > 0.9
+
+
 def test_recommendations_are_ranked_and_exclude_itself(model):
     recs = model.recommend("The Dark Knight", n=10)
 

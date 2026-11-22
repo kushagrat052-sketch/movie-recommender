@@ -6,14 +6,21 @@ by hand:
     python update_data.py
 
 New releases come from TMDB's popular / now-playing lists. Existing films in
-those lists get their vote counts refreshed. Set TMDB_API_KEY in .env (or in
-the environment); without a key the script exits quietly so scheduled runs
-on a fresh clone do not fail.
+those lists get their vote counts refreshed, and any row still missing a
+poster path is filled in. Set TMDB_API_KEY in .env (or in the environment);
+without a key the script exits quietly so scheduled runs on a fresh clone
+do not fail.
+
+To only backfill poster paths for the existing CSV:
+
+    python update_data.py --posters
 """
 
+import argparse
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,6 +38,7 @@ STAMP_PATH = Path("data/last_updated.json")
 
 API_KEY = os.getenv("TMDB_API_KEY", "")
 PAGES = int(os.getenv("UPDATE_PAGES", "5"))
+POSTER_COLUMN = "poster_path"
 
 
 def api_get(path, **params):
@@ -38,6 +46,56 @@ def api_get(path, **params):
     response = requests.get(f"{API_URL}{path}", params=params, timeout=20)
     response.raise_for_status()
     return response.json()
+
+
+def ensure_poster_column(df):
+    if POSTER_COLUMN not in df:
+        df[POSTER_COLUMN] = ""
+    df[POSTER_COLUMN] = df[POSTER_COLUMN].fillna("").astype(str)
+    return df
+
+
+def fetch_poster_path(movie_id):
+    """One poster path, with a little patience for TMDB rate limits."""
+    for attempt in range(3):
+        try:
+            return api_get(f"/movie/{movie_id}").get("poster_path") or ""
+        except requests.HTTPError as error:
+            status = getattr(error.response, "status_code", None)
+            if status == 404:  # film removed from TMDB
+                return ""
+            if status == 429:  # rate limited; back off and retry
+                time.sleep(2 * (attempt + 1))
+                continue
+            return ""
+        except requests.RequestException:
+            time.sleep(1)
+    return ""
+
+
+def fill_missing_posters(df, workers=12):
+    """Fetch poster paths for rows that do not have one yet."""
+    ensure_poster_column(df)
+    missing = df[df[POSTER_COLUMN].str.strip() == ""]
+    if missing.empty:
+        return df, 0
+
+    print(f"Fetching {len(missing)} missing poster paths...")
+    found = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(fetch_poster_path, int(movie_id)): int(movie_id)
+            for movie_id in missing["id"]
+        }
+        for done, future in enumerate(as_completed(futures), 1):
+            found[futures[future]] = future.result()
+            if done % 500 == 0:
+                print(f"  {done}/{len(futures)} checked")
+
+    for movie_id, path in found.items():
+        if path:
+            df.loc[df["id"] == movie_id, POSTER_COLUMN] = path
+    return df, sum(1 for path in found.values() if path)
 
 
 def collect_candidates():
@@ -100,6 +158,7 @@ def build_row(movie_id, summary):
         "vote_count": int(details.get("vote_count") or 0),
         "release_year": parse_year(details.get("release_date")),
         "tags": make_tags(overview, genres, keywords, cast, director),
+        "poster_path": details.get("poster_path") or summary.get("poster_path") or "",
     }
 
 
@@ -111,7 +170,7 @@ def main():
     if not DATA_PATH.exists():
         raise SystemExit(f"{DATA_PATH} not found. Run prepare_data.py first.")
 
-    df = pd.read_csv(DATA_PATH)
+    df = ensure_poster_column(pd.read_csv(DATA_PATH))
     known_ids = {int(movie_id) for movie_id in df["id"]}
     known_titles = {title.lower() for title in df["title"]}
 
@@ -128,6 +187,8 @@ def main():
                 float(summary.get("vote_average") or 0), 1
             )
             df.loc[mask, "vote_count"] = int(summary.get("vote_count") or 0)
+            if summary.get("poster_path"):
+                df.loc[mask, POSTER_COLUMN] = summary["poster_path"]
             refreshed += 1
             continue
 
@@ -151,6 +212,7 @@ def main():
     if new_rows:
         df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
     df = df.drop_duplicates(subset="title").reset_index(drop=True)
+    df, posters_filled = fill_missing_posters(df)
     df.to_csv(DATA_PATH, index=False)
 
     stamp = {
@@ -158,14 +220,40 @@ def main():
         "movies": int(len(df)),
         "added": len(new_rows),
         "refreshed": refreshed,
+        "posters_added": posters_filled,
     }
     STAMP_PATH.write_text(json.dumps(stamp, indent=2) + "\n")
 
     print(
-        f"Added {len(new_rows)} new films, refreshed {refreshed}. "
-        f"Dataset now has {len(df)} movies."
+        f"Added {len(new_rows)} new films, refreshed {refreshed}, "
+        f"filled {posters_filled} posters. Dataset now has {len(df)} movies."
     )
 
 
+def backfill_posters():
+    """Fill poster paths for the current CSV without touching anything else."""
+    if not API_KEY:
+        print("TMDB_API_KEY is not set - skipping poster backfill.")
+        return
+
+    if not DATA_PATH.exists():
+        raise SystemExit(f"{DATA_PATH} not found. Run prepare_data.py first.")
+
+    df = ensure_poster_column(pd.read_csv(DATA_PATH))
+    df, filled = fill_missing_posters(df)
+    df.to_csv(DATA_PATH, index=False)
+    print(f"Filled {filled} poster paths. Dataset now has {len(df)} movies.")
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Refresh movie data from TMDB.")
+    parser.add_argument(
+        "--posters",
+        action="store_true",
+        help="only backfill missing poster paths, then exit",
+    )
+    args = parser.parse_args()
+    if args.posters:
+        backfill_posters()
+    else:
+        main()

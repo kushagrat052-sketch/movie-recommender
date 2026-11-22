@@ -106,8 +106,16 @@ def fetch_poster(movie_id):
                 return None
 
 
-def show_poster(movie_id):
-    url = fetch_poster(movie_id)
+def poster_url(row):
+    """Poster links ship with the dataset; the API is only a fallback."""
+    path = row.get("poster_path")
+    if isinstance(path, str) and path.strip() and path.strip().lower() != "nan":
+        return f"{POSTER_BASE}{path.strip()}"
+    return fetch_poster(row.get("id"))
+
+
+def show_poster(row):
+    url = poster_url(row)
     if url:
         st.image(url, width="stretch")
     else:
@@ -150,7 +158,6 @@ def surprise():
 
 model = load_model()
 meta = load_meta()
-has_api_key = bool(get_api_key())
 
 st.title("Movie Recommendation System")
 st.caption(
@@ -201,7 +208,7 @@ else:
             columns = st.columns(3, gap="medium")
             for column, (_, row) in zip(columns, picks.iloc[start : start + 3].iterrows()):
                 with column, st.container(border=True):
-                    show_poster(row["id"])
+                    show_poster(row)
                     st.markdown(
                         f"**[{row['title']}{year_of(row)}]({TMDB_MOVIE}/{int(row['id'])})**"
                     )
@@ -254,7 +261,7 @@ else:
     with st.container(border=True):
         poster_col, text_col = st.columns([1, 3], gap="large")
         with poster_col:
-            show_poster(info["id"])
+            show_poster(info)
         with text_col:
             st.markdown(f"### {info['title']}{year_of(info)}")
             st.markdown(
@@ -287,7 +294,7 @@ else:
             columns = st.columns(3, gap="medium")
             for column, (_, row) in zip(columns, recs.iloc[start : start + 3].iterrows()):
                 with column, st.container(border=True):
-                    show_poster(row["id"])
+                    show_poster(row)
                     st.markdown(
                         f"**[{row['title']}{year_of(row)}]({TMDB_MOVIE}/{int(row['id'])})**"
                     )
@@ -309,11 +316,5 @@ with left:
         f"Data updated {updated_label(meta)} · refreshed weekly via GitHub Actions · "
         "Movie data and posters © TMDB"
     )
-    if not has_api_key:
-        st.caption(
-            "Posters are off — add `TMDB_API_KEY` under **Settings → Secrets** "
-            "on Streamlit Cloud (or in `.streamlit/secrets.toml` locally), "
-            "then reboot the app."
-        )
 with right:
     st.link_button("View on GitHub", REPO_URL, width="stretch")

@@ -93,6 +93,19 @@ def main():
             "tags",
         ]
     ]
+
+    # Keep the poster links from the previous build so a rebuild of the raw
+    # Kaggle data does not blank out all the artwork.
+    out["poster_path"] = ""
+    if OUT_PATH.exists():
+        try:
+            previous = pd.read_csv(OUT_PATH)
+            if {"id", "poster_path"} <= set(previous.columns):
+                poster_map = previous.set_index("id")["poster_path"].fillna("")
+                out["poster_path"] = out["id"].map(poster_map).fillna("")
+        except (OSError, ValueError, pd.errors.ParserError):
+            pass
+
     out.to_csv(OUT_PATH, index=False)
 
     size_mb = OUT_PATH.stat().st_size / 1024 / 1024

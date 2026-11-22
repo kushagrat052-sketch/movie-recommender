@@ -14,7 +14,8 @@ refreshes itself every week from the TMDB API.
 
 | | |
 | --- | --- |
-| **One-click cloud app** | [Deploy to Streamlit Community Cloud](https://share.streamlit.io/deploy?repository=kushagrat052-sketch/movie-recommender&branch=main&mainModule=app.py) — free, ~2 minutes, add `TMDB_API_KEY` under *Settings → Secrets* to enable posters. |
+| **Live app** | [kushagrat052-sketch-movie-recommender-app-r8hidy.streamlit.app](https://kushagrat052-sketch-movie-recommender-app-r8hidy.streamlit.app/) |
+| **One-click cloud app** | [Deploy to Streamlit Community Cloud](https://share.streamlit.io/deploy?repository=kushagrat052-sketch/movie-recommender&branch=main&mainModule=app.py) — free, ~2 minutes. Posters are part of the dataset, so no secrets are needed to see the app as designed. |
 | **One-click dev environment** | [Open in GitHub Codespaces](https://codespaces.new/kushagrat052-sketch/movie-recommender) — installs dependencies and starts Streamlit on port 8501 automatically; the preview opens for you. |
 | **One-click data refresh** | [Run the refresh workflow](https://github.com/kushagrat052-sketch/movie-recommender/actions/workflows/update-data.yml) — needs a `TMDB_API_KEY` repository secret. |
 | **Local run** | `git clone` + `pip install -r requirements.txt` + `streamlit run app.py` (details below). |
@@ -29,6 +30,8 @@ refreshes itself every week from the TMDB API.
   compact popover.
 - **Posters and details** — poster art, rating, cast, director, genres and
   overview for the selected film, plus a match score for every recommendation.
+  Poster links live in the dataset (`poster_path`), so artwork loads with no
+  API key and no per-request round trip.
 - **Self-updating data** — a scheduled GitHub Action pulls new releases and
   refreshes vote counts every Monday, then commits the updated CSV. The UI
   shows when the data last changed.
@@ -67,6 +70,7 @@ ordering is what matters here.
 
 - adds new films from `/movie/popular` and `/movie/now_playing`,
 - refreshes `vote_average` / `vote_count` for films already in the catalogue,
+- stores the poster path for each new film and backfills any that are missing,
 - rebuilds the TF-IDF tags with the same logic used by `prepare_data.py`
   (shared in `features.py`),
 - writes `data/last_updated.json`, which powers the "Updated …" label in the UI.
@@ -85,6 +89,7 @@ or run it yourself:
 ```bash
 python update_data.py           # reads TMDB_API_KEY from .env or the environment
 UPDATE_PAGES=10 python update_data.py   # scan more popular pages (default 5)
+python update_data.py --posters # only fill missing poster paths, then exit
 ```
 
 Without a key the script exits cleanly and leaves the data untouched.
@@ -129,17 +134,20 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-### Posters (optional)
+### TMDB API key (only for refreshing data)
 
-The app reads a TMDB API key from `.env` or `.streamlit/secrets.toml`. Without
-one everything still works — you just get plain placeholders instead of posters.
+The app itself needs no key: poster paths are already in
+`data/movies_processed.csv`. A key is only used by `update_data.py` to fetch
+new films, fresh vote counts and posters for anything still missing.
 
 ```bash
 cp .env.example .env
 # then paste your key into .env
 ```
 
-Get a free key from https://www.themoviedb.org/settings/api.
+Get a free key from https://www.themoviedb.org/settings/api. For a deployed
+Streamlit app the same key can be added under *Settings → Secrets*; the app
+picks it up as a fallback for films without a stored poster.
 
 ### Rebuilding the data from scratch
 
@@ -165,11 +173,9 @@ category rankings, unknown titles and the shape of the loaded dataset.
 1. Go to https://share.streamlit.io → **New app**, or use the
    [deploy link](https://share.streamlit.io/deploy?repository=kushagrat052-sketch/movie-recommender&branch=main&mainModule=app.py).
 2. Pick `kushagrat052-sketch/movie-recommender`, branch `main`, file `app.py`.
-3. Under **Settings → Secrets**, add:
-
-   ```toml
-   TMDB_API_KEY = "your_key_here"
-   ```
+   That is all that is required — the posters travel with the repo.
+3. Optional: add `TMDB_API_KEY = "your_key_here"` under **Settings → Secrets**
+   if you want the app to fetch artwork for films that lack a stored path.
 
 ## Known limitations
 
