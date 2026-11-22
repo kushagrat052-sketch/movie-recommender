@@ -48,9 +48,17 @@ st.markdown(
 )
 
 
+def data_version():
+    """CSV timestamp, so a refreshed dataset invalidates the cached model."""
+    try:
+        return int(Path("data/movies_processed.csv").stat().st_mtime)
+    except OSError:
+        return 0
+
+
 @st.cache_resource(show_spinner="Loading the movie index...", ttl=86400)
-def load_model():
-    return MovieRecommender("data/movies_processed.csv")
+def load_model(csv_path, version):
+    return MovieRecommender(csv_path)
 
 
 @st.cache_data(show_spinner=False, ttl=60)
@@ -156,7 +164,7 @@ def surprise():
     st.session_state.movie = random.choice(model.titles)
 
 
-model = load_model()
+model = load_model("data/movies_processed.csv", data_version())
 meta = load_meta()
 
 st.title("Movie Recommendation System")
