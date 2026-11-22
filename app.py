@@ -62,10 +62,28 @@ def load_meta():
 
 
 def get_api_key():
+    """TMDB key from Streamlit secrets, then the environment.
+
+    Accepts a few common spellings so a key pasted as `tmdb_api_key`,
+    `[tmdb] api_key` or into the environment still works.
+    """
+    candidates = []
     try:
-        return st.secrets["TMDB_API_KEY"]
+        secrets = st.secrets
+        for name in ("TMDB_API_KEY", "tmdb_api_key"):
+            if name in secrets:
+                candidates.append(secrets[name])
+        if "tmdb" in secrets and "api_key" in secrets["tmdb"]:
+            candidates.append(secrets["tmdb"]["api_key"])
     except Exception:
-        return os.getenv("TMDB_API_KEY", "")
+        pass
+    candidates.append(os.getenv("TMDB_API_KEY", ""))
+
+    for value in candidates:
+        value = str(value).strip() if value else ""
+        if value:
+            return value
+    return ""
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
@@ -292,6 +310,10 @@ with left:
         "Movie data and posters © TMDB"
     )
     if not has_api_key:
-        st.caption("Posters are off until a TMDB API key is added to `.streamlit/secrets.toml`.")
+        st.caption(
+            "Posters are off — add `TMDB_API_KEY` under **Settings → Secrets** "
+            "on Streamlit Cloud (or in `.streamlit/secrets.toml` locally), "
+            "then reboot the app."
+        )
 with right:
     st.link_button("View on GitHub", REPO_URL, width="stretch")
